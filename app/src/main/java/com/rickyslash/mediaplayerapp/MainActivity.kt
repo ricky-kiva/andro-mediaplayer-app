@@ -1,16 +1,42 @@
 package com.rickyslash.mediaplayerapp
 
-import android.media.AudioAttributes
-import android.media.MediaPlayer
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.os.IBinder
+import android.os.Message
+import android.os.Messenger
+import android.os.RemoteException
+import android.util.Log
 import android.widget.Button
-import java.io.IOException
 
 class MainActivity : AppCompatActivity() {
 
-    private var mMediaPlayer: MediaPlayer? = null
-    private var isReady: Boolean = false
+    private lateinit var mBoundServiceIntent: Intent
+    private var mService: Messenger? = null
+    private var mServiceBound = false
+
+    // call this on bind service
+    private val mServiceConnection = object : ServiceConnection {
+        // this will do when service is connected
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            // setup Messenger to service (IBinder) for sending message to MediaService later
+            mService = Messenger(service)
+            // set flag
+            mServiceBound = true
+        }
+
+        // this will do when service is disconnected
+        override fun onServiceDisconnected(name: ComponentName?) {
+            mService = null
+            // set flag
+            mServiceBound = false
+        }
+
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -20,58 +46,50 @@ class MainActivity : AppCompatActivity() {
         val btnStop = findViewById<Button>(R.id.btn_stop)
 
         btnPlay.setOnClickListener {
-            if (!isReady) {
-                // prepare the player for playback
-                mMediaPlayer?.prepareAsync()
-            } else {
-                // sets the logic for start button
-                if (mMediaPlayer?.isPlaying as Boolean) {
-                    mMediaPlayer?.pause()
-                } else {
-                    mMediaPlayer?.start()
+            if (mServiceBound) {
+                try {
+                    // send message MediaService.PLAY
+                    mService?.send(Message.obtain(null, MediaService.PLAY, 0, 0))
+                } catch (e: RemoteException) {
+                    e.printStackTrace()
                 }
             }
         }
 
         btnStop.setOnClickListener {
-            // stop the player
-            if (mMediaPlayer?.isPlaying as Boolean || isReady) {
-                mMediaPlayer?.stop()
-                isReady = false
+            if (mServiceBound) {
+                try {
+                    // send message MediaService.STOP
+                    mService?.send(Message.obtain(null, MediaService.STOP, 0, 0))
+                } catch (e: RemoteException) {
+                    e.printStackTrace()
+                }
             }
         }
 
-        init()
+        // making Intent for the service
+        mBoundServiceIntent = Intent(this@MainActivity, MediaService::class.java)
+        mBoundServiceIntent.action = MediaService.ACTION_CREATE // add action for the intent (ACTION_CREATE)
+
+        // starts the service
+        startService(mBoundServiceIntent) // this ensuring the service continue to run in background even it has been unbind
+        // bind the service
+        bindService(mBoundServiceIntent, mServiceConnection, Context.BIND_AUTO_CREATE)
+
     }
 
-    private fun init() {
-        // instantiating MediaPlayer
-        mMediaPlayer = MediaPlayer()
-        val attribute = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_MEDIA) // set usage of the audio (as Media playback)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION) // set content type of audio (Sonification is for short audio clips)
-            .build()
-        mMediaPlayer?.setAudioAttributes(attribute) // pass attributes to MediaPlayer
+    override fun onDestroy() {
+        super.onDestroy()
+        Log.d(TAG, "onDestroy: ")
+        unbindService(mServiceConnection) // unbind the service
+        mBoundServiceIntent.action = MediaService.ACTION_DESTROY // set action for the intent (ACTION_DESTROY)
 
-        // get the descriptor for the media
-        // `descriptor` is unique integer to identify open file within a process
-        val afd = applicationContext.resources.openRawResourceFd(R.raw.pink_floyd_high_hopes)
-        try {
-            // set the datasource for the MediaPlayer
-            mMediaPlayer?.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-        } catch (e: IOException) {
-            e.printStackTrace()
-        }
+        // ensure MediaService is still running
+        startService(mBoundServiceIntent)
+    }
 
-        // this function is called when MediaPlayer is prepared to play the media
-        mMediaPlayer?.setOnPreparedListener {
-            isReady = true
-            // starts the MediaPlayer playback
-            mMediaPlayer?.start()
-        }
-
-        // this called when MediaPlayer gets error while playing the media
-        mMediaPlayer?.setOnErrorListener { _, _, _ -> false }
+    companion object {
+        const val TAG = "MainActivity"
     }
 
 }
