@@ -1,11 +1,16 @@
 package com.rickyslash.mediaplayerapp
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.*
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import java.io.IOException
 import java.lang.ref.WeakReference
 
@@ -75,7 +80,44 @@ class MediaService : Service(), MediaPlayerCallback {
                 mMediaPlayer?.pause()
             } else {
                 mMediaPlayer?.start()
+                showNotif()
             }
+        }
+    }
+
+    // make notification
+    private fun showNotif() {
+        val notificationIntent = Intent(this, MainActivity::class.java)
+        // this makes when user click on notification, it jumps to target activity (MainActivity)
+        notificationIntent.flags = Intent.FLAG_ACTIVITY_BROUGHT_TO_FRONT
+
+        val pendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE)
+        } else {
+            PendingIntent.getActivity(this, 0, notificationIntent, 0)
+        }
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_DEFAULT_IMPORTANCE)
+            .setContentTitle("Playing Media")
+            .setContentText("Pink Floyd - High Hopes")
+            .setSmallIcon(R.drawable.ic_launcher_background)
+            .setContentIntent(pendingIntent)
+            .setTicker("Playing: High Hopes by Pink Floyd")
+            .build()
+
+        createChannel(CHANNEL_DEFAULT_IMPORTANCE)
+        startForeground(ONGOING_NOTIFICATION_ID, notification)
+    }
+
+    // create channel for notification
+    private fun createChannel(CHANNEL_ID: String) {
+        val mNotificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(CHANNEL_ID, "Music", NotificationManager.IMPORTANCE_DEFAULT)
+            channel.setShowBadge(false)
+            channel.setSound(null, null)
+            mNotificationManager.createNotificationChannel(channel)
         }
     }
 
@@ -85,7 +127,13 @@ class MediaService : Service(), MediaPlayerCallback {
         if (mMediaPlayer?.isPlaying as Boolean || isReady) {
             mMediaPlayer?.stop()
             isReady = false
+            stopNotif()
         }
+    }
+
+    // stop notification
+    private fun stopNotif() {
+        stopForeground(false) // will only remove notification, but service still continue in the background
     }
 
     private fun init() {
@@ -112,6 +160,7 @@ class MediaService : Service(), MediaPlayerCallback {
             isReady = true
             // starts the MediaPlayer playback
             mMediaPlayer?.start()
+            showNotif()
         }
 
         // this called when MediaPlayer gets error while playing the media
@@ -124,6 +173,8 @@ class MediaService : Service(), MediaPlayerCallback {
         const val TAG = "MediaService"
         const val PLAY = 0
         const val STOP = 1
+        const val CHANNEL_DEFAULT_IMPORTANCE = "Channel_Test"
+        const val ONGOING_NOTIFICATION_ID = 1
     }
 
 }
